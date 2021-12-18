@@ -5,7 +5,11 @@ from torch.utils.data import Dataset
 class MultiWOZDataset(Dataset):
     def __init__(self, tokenizer, path_to_logs, path_to_labels, path_to_knowledge, max_length=40):
 
-        self.tokenizer = tokenizer
+        # self.tokenizer = tokenizer
+        self.special_tokens = {'U' : '<U>',
+                               'S' : '<S>',
+                               'Ka' : '<Ka>'
+                               }
 
         knowledge_base = json.load(open(path_to_knowledge))
         labels = json.load(open(path_to_labels))
@@ -33,36 +37,7 @@ class MultiWOZDataset(Dataset):
                 self.knowledge_doc_list.append(document)
                 self.response_list.append(response)
 
-                #
-                # #todo consider to add also special tokens for S and U
-                # # dialog_context = (' ').join([utterance['text'] for utterance in log])
-                # dialog_context = log
-                #
-                # # retrieve question and answer part of the knowledge snippet
-                # # question = document['title'].strip()
-                # # answer = document['body'].strip()
-                #
-                # # preparing answer
-                # # padding_length = max_length - len(self.tokenizer.tokenize(answer))
-                # # padded_answer = ' '.join([answer] + [self.tokenizer.mask_token] * padding_length)
-                #
-                # # retrieve ground-truth response
-                # # padding_length = max_length - len(self.tokenizer.tokenize(response))
-                # # padded_response = ' '.join([response] + [self.tokenizer.mask_token] * padding_length)
-                #
-                # # store data
-                # self.context_list.append(dialog_context)
-                # self.answer_list.append(padded_answer)
-                # self.response_list.append(padded_response)
-
-        # self.input_embeddings =  self.tokenizer(context_list,
-        #                                         answer_list,
-        #                                         padding=True)
-        # self.target_embeddings = self.tokenizer.batch_encode_plus(response_list,
-        #                                                           return_attention_mask = False,
-        #                                                           add_special_tokens=False)
-
-        del knowledge_base, labels, logs,
+        del knowledge_base, labels, logs
 
     def __len__(self):
         return len(self.context_list)
@@ -77,8 +52,8 @@ class MultiWOZDataset(Dataset):
 
         # if sep token is not used to divide dialog context and knowledge answer, the parameter tokenizer is not needed
         # anymore
-        input = ' '.join([f"[{utterance['speaker']}] {utterance['text']}" for utterance in dialog_context]
-                         + [self.tokenizer.sep_token, answer])
+        input = ' '.join([f"{self.special_tokens[utterance['speaker']]} {utterance['text']}" for utterance in dialog_context]
+                         + [self.special_tokens['Ka'], answer])
 
         return input, target
 
