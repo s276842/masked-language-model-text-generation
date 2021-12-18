@@ -3,7 +3,7 @@ import json
 from torch.utils.data import Dataset
 
 class MultiWOZDataset(Dataset):
-    def __init__(self, tokenizer, path_to_logs, path_to_labels, path_to_knowledge, max_length=40):
+    def __init__(self, path_to_logs, path_to_labels, path_to_knowledge, max_length=40):
 
         # self.tokenizer = tokenizer
         self.special_tokens = {'U' : '<U>',

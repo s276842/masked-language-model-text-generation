@@ -22,8 +22,7 @@ class MaskedLMGenerator(torch.nn.Module):
     #todo fix return_attention
     def forward(self, input_embeddings, p=None, generation_max_len: int =40, context_offset: int =0, return_attention: bool =True):
 
-        input_ids = input_embeddings['input_ids']
-        batch_size = input_ids.shape[0]
+        batch_size = input_embeddings['input_ids'].shape[0]
 
         if p is None:
             p = torch.tensor([[1/generation_max_len] * generation_max_len] * batch_size)
@@ -37,10 +36,12 @@ class MaskedLMGenerator(torch.nn.Module):
         input_embeddings['input_ids'][np.arange(batch_size), idx_to_mask + context_offset] = self.tokenizer.mask_token_id
 
         # 3. Generate predictions
-        out = self.model(return_attention=return_attention, **input_embeddings)
+        out = self.model(**input_embeddings)
         logits = out['logits'][torch.arange(batch_size), idx_to_mask + context_offset]
 
-        return logits, idx_to_mask, out['attentions']
+        attention = torch.stack(out['attentions'])[:, :, :, idx_to_mask + context_offset, :]
+
+        return logits, idx_to_mask, attention
 
 
 

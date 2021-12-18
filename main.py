@@ -44,9 +44,8 @@ def init_batch(tokenizer, batch, generation_max_len=40):
 
     target = []
     for response in batch[1]:
-        response_tokens = tokenizer.encode(response, add_special_tokens=False)[:generation_max_len]
-        response_tokens += ['<eos>']
-        response_tokens += [tokenizer.pad_token_id] * (generation_max_len - len(response_tokens) - 1)
+        response_tokens = tokenizer.encode(response + ' <eos> ', add_special_tokens=False)[:generation_max_len + 1]
+        response_tokens += [tokenizer.pad_token_id] * (generation_max_len - len(response_tokens))
         target.append(response_tokens)
 
     target = torch.tensor(target)
@@ -60,11 +59,11 @@ def negative_attention(attentions, counter):
 
 
 
-def finetune(textgenerator, dataloader, generation_max_len=40, num_epochs=8, num_iter=150, backprop_every=25,
+def finetune(textgenerator, train_dataloader, val_dataloader = None, generation_max_len=40, num_epochs=8, num_iter=150, backprop_every=25,
              use_apex=False,
              device = 'cpu'):
 
-    total_steps = len(dl) * num_epochs * num_iter
+    total_steps = len(train_dataloader) * num_epochs * num_iter
     optimizer = AdamW(textgenerator.model.parameters(), lr=2e-5, eps=1e-8)
 
     #todo implement nvidia apex
@@ -82,9 +81,9 @@ def finetune(textgenerator, dataloader, generation_max_len=40, num_epochs=8, num
     # todo defjne total steps (w.r.t num of iterations or number of batches)
     scheduler = get_linear_schedule_with_warmup(optimizer, num_training_steps=total_steps, num_warmup_steps=0)
 
-
-    for epoch in num_epochs:
-        for batch in dataloader:
+    train_loss = []
+    for epoch in range(num_epochs):
+        for batch in train_dataloader:
 
             input_embeddings, response = init_batch(tokenizer, batch, generation_max_len=generation_max_len)
             input_embeddings = input_embeddings.to(device)
@@ -96,6 +95,7 @@ def finetune(textgenerator, dataloader, generation_max_len=40, num_epochs=8, num
             p = torch.tensor([[1] + [0] * (num_tokens - 1)] * batch_size)
             counter = torch.ones((batch_size, generation_max_len))
             optimizer.zero_grad()
+            sum_loss = 0
 
             for i in range(num_iter):
                 #todo decide where to zeroing the gradients (every replacement, every n-replacements, every batch)
@@ -109,8 +109,9 @@ def finetune(textgenerator, dataloader, generation_max_len=40, num_epochs=8, num
 
                 # Retrieve target tokens from ground-truth:
                 target = response[torch.arange(batch_size), positions]
-
                 loss = F.cross_entropy(logits, target)
+                sum_loss += loss.item()
+
                 if use_apex:
                     with amp.scale_loss(loss, optimizer) as scaled_loss:
                         scaled_loss.backward()
@@ -121,17 +122,23 @@ def finetune(textgenerator, dataloader, generation_max_len=40, num_epochs=8, num
                 # Replace tokens
                 dist = torch.distributions.categorical.Categorical(logits=logits)
                 tokens = dist.sample()
-                input_embeddings['input_ids'][torch.arange(batch_size), positions] = tokens
+                input_embeddings['input_ids'][torch.arange(batch_size), positions + context_offset] = tokens
 
+                print(tokenizer.batch_decode(input_embeddings['input_ids'][0, -42:]))
+                print(tokenizer.batch_decode(response))
+                print()
 
                 # Zero gradients, perform a backward pass, and update the weights.
-                if i % backprop_every == 0:
+                if (i+1) % backprop_every == 0:
                     # Clip the norm of the gradients to 1.0.
                     # This is to help prevent the "exploding gradients" problem.
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                     optimizer.step()
                     scheduler.step()
                     optimizer.zero_grad()
+                    sum_loss /= backprop_every
+                    print(sum_loss)
+                    train_loss.append(sum_loss)
 
                 # Compute negative attention
                 p = negative_attention(attentions, counter)
@@ -145,11 +152,20 @@ if __name__ == '__main__':
     model = textgenerator.model
 
     from dataset import MultiWOZDataset
-    m = MultiWOZDataset(tokenizer, 'data/val/logs.json', 'data/val/labels.json', 'data/knowledge.json')
+    train_set = MultiWOZDataset('data/train/logs.json', 'data/train/labels.json', 'data/knowledge.json')
+    val_set = MultiWOZDataset('data/val/logs.json', 'data/val/labels.json', 'data/knowledge.json')
+
+    tokenizer.add_special_tokens({'additional_special_tokens':list(train_set.special_tokens.values()) + ['<eos>']})
+    model.resize_token_embeddings(len(tokenizer))
 
     from torch.utils.data import DataLoader
-    dl = DataLoader(m, batch_size=8)
-    batch = next(iter(dl))
+    train_dataloader = DataLoader(train_set, batch_size=8)
+    val_dataloader = DataLoader(val_set, batch_size=8)
+
     num_epochs = 8
     num_iter = 150
     generation_max_len = 40
+
+    finetune(textgenerator, train_dataloader)
+
+
