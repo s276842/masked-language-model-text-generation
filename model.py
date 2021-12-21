@@ -37,11 +37,9 @@ class MaskedLMGenerator(torch.nn.Module):
 
         # 3. Generate predictions
         out = self.model(**input_embeddings)
-        logits = out['logits'][torch.arange(batch_size), idx_to_mask + context_offset]
 
-        attention = torch.stack(out['attentions'])[:, :, :, idx_to_mask + context_offset, :]
+        logits = out['logits'][torch.arange(batch_size), idx_to_mask + context_offset].to('cpu')
+        attention = torch.stack(out['attentions'])[:, :, :, idx_to_mask + context_offset, :].to('cpu')
+        del out
 
         return logits, idx_to_mask, attention
-
-
-
